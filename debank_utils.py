@@ -1,27 +1,46 @@
-from debank_utils_typehint import ParamUserProtocolAllChain, ParamUserProtocol
+from debank_utils_typehint import ParamsUserProtocolAllChain, ParamsUserProtocol
 from custom_logging import setup_logging
-import requests, os
+import requests, os, json
 
 from dotenv import load_dotenv
 load_dotenv()
 
 import logging
 
-logger_info, logger_error = setup_logging("debank_utils_info.log", "debank_utils_error.log")
+def setup_loggers():
 
-# Use these loggers throughout your code
-logger_info.info("This is an info message")
-logger_error.error("This is an error message")
+    global logger_info, logger_error
+    logger_info, logger_error = setup_logging("debank_utils_info.log", "debank_utils_error.log")
 
-if os.getenv("ACCESS_KEY") == None:
-    error_message = "Access key was not found in .env file"
-    logger_error.error(error_message)
-    raise Exception(error_message)
+    # Use these loggers throughout your code
+    logger_info.info("This is an info message")
+    logger_error.error("This is an error message")
 
-else:
-    success_message = f'Loaded access key: {os.getenv("ACCESS_KEY")}'
-    logging.info(success_message)
-    print(success_message)
+    if os.getenv("ACCESS_KEY") == None:
+        error_message = "Access key was not found in .env file"
+        logger_error.error(error_message)
+        raise Exception(error_message)
+
+    else:
+        success_message = f'Loaded access key: {os.getenv("ACCESS_KEY")}'
+        logging.info(success_message)
+        print(success_message)
+
+def read_json_data(primary_file, backup_file):
+    try:
+        if os.path.exists(primary_file) and os.path.getsize(primary_file) > 0:
+            with open(primary_file, 'r') as file:
+                data = json.load(file)
+                if data:  # Checks if data is not empty
+                    return data
+        # If primary file is empty or doesn't exist, read from backup file
+        if os.path.exists(backup_file) and os.path.getsize(backup_file) > 0:
+            with open(backup_file, 'r') as file:
+                data = json.load(file)
+                return data
+        return []  # Returns empty list if both files are empty or don't exist
+    except json.JSONDecodeError:
+        return []  # Handles the case where file content is not valid JSON
 
 class Get:
 
@@ -30,13 +49,48 @@ class Get:
         'AccessKey': os.getenv("ACCESS_KEY")
     }
 
-    def get_user_protocol(strategy_name:str, params):
+    def user_protocol(strategy_name:str, params):
         
-        switcher = {
-
+        strategy = {
+            "simple_list": Get.__user_protocol_simple_list,
+            "all_simple_list": Get.__user_protocol_all_simple_list,
+            "complex_list" : Get.__user_protocol_complex_list,
+            "all_complex_list" : Get.__user_protocol_all_complex_list
         }
+        return strategy[strategy_name](params)
+    
+    def __user_protocol_simple_list( params:ParamsUserProtocolAllChain):
+        """
+        Parameters
+            chain_id : required, chain id, eg: eth, bsc, xdai, for more info.
 
-    def _get_user_protocol_complex_list(params: ParamUserProtocol):
+            id : required, user address
+
+        Returns
+            return list of protocols with user assets.
+            Array of Object - An object with following fields:
+            id : string - The protocol's id.
+            chain : string - The chain's id.
+            name : string - The protocol's name. null if not defined in the contract and not available from other sources.
+            logo_url : string - URL of the protocol's logo image. null if not available.
+            site_url : string - prioritize websites that can be interacted with, not official websites.
+            has_supported_portfolio : boolean - Is the portfolio already supported.
+            net_usd_value : double - The amount of the user's net assets in the protocol.
+            asset_usd_value : double - The amount of the user's total assets in the protocol.
+            debt_usd_value : double - The Debt USD value.
+        """
+        api_endpoint = APIManager.parse_path("/v1/user/simple_protocol_list")
+        data = APIManager.call_endpoint(api_endpoint, params)
+        print(data)
+        return data
+
+    def __user_protocol_all_simple_list( params:ParamsUserProtocolAllChain):
+        api_endpoint = APIManager.parse_path("/v1/user/all_simple_protocol_list")
+        data = APIManager.call_endpoint(api_endpoint, params)
+        print(data)
+        return data
+
+    def __user_protocol_complex_list( params: ParamsUserProtocol):
         '''
         Parameters
             chain_id : required, chain id, eg: eth, bsc, xdai, for more info.
@@ -58,8 +112,9 @@ class Get:
         api_endpoint = APIManager.parse_path("/v1/user/complex_protocol_list")
         data = APIManager.call_endpoint(api_endpoint, params)
         print(data)
+        return data
 
-    def _get_user_protocol_all_complex_list(params: ParamUserProtocolAllChain):
+    def __user_protocol_all_complex_list(params: ParamsUserProtocolAllChain):
         
 
         '''
@@ -86,11 +141,15 @@ class Get:
         api_endpoint = APIManager.parse_path("/v1/user/all_complex_protocol_list")
         data = APIManager.call_endpoint(api_endpoint, params)
         print(data)
-        
-        
+        return data       
 
+# This class parses endpoint path and interact directly with API
 class APIEndpoint:
-    
+    '''
+    functions all uses logger
+        parse_path
+        call_endpoint 
+    '''
     api_base_url = f'https://pro-openapi.debank.com'
 
     def parse_path(api_path:str):
@@ -107,6 +166,7 @@ class APIEndpoint:
             if response.status_code == 200:
                 # If the request was successful, parse the JSON response
                 data = response.json()
+                logger_info.info(f'Called endpoint {api_endpoint} : Success\nParamters: {params}')
                 return data
             else:
                 # Handle potential errors - for instance, by logging the error
@@ -122,6 +182,7 @@ class APIEndpoint:
             logging.exception(error_message)
             return None
 
+# Singleton
 class APIManager(APIEndpoint):
     
     instance = None
@@ -135,17 +196,48 @@ class APIManager(APIEndpoint):
         else:
             return APIManager.instance
 
-# Example usage
-if __name__ == "__main__":
-    # TEST fn
-    test_get_complex_protocol_param = {
-        "id": "0x803a897bDEfdba303738c601f082bf563f5a8B6E",
-        "chain_id": "blast"
-    }
 
-    test_get_all_complex_protocol_param = {
-        "id": "0x803a897bDEfdba303738c601f082bf563f5a8B6E"
-    }
-    jd_data = Get._get_user_protocol_complex_list(test_get_complex_protocol_param)
+if __name__ == "__main__":
+
+    setup_loggers()
+
+    def read_json_data(primary_file, backup_file):
+        try:
+            # First try to read from the primary file (input_address.test.json)
+            if os.path.exists(primary_file) and os.path.getsize(primary_file) > 0:
+                with open(primary_file, 'r') as file:
+                    data = json.load(file)
+                    if data:  # Checks if data is not empty
+                        return data
+            # If primary file is empty or doesn't exist, read from backup file (input_address.json)
+            if os.path.exists(backup_file) and os.path.getsize(backup_file) > 0:
+                with open(backup_file, 'r') as file:
+                    data = json.load(file)
+                    return data
+            return []  # Returns empty list if both files are empty or don't exist
+        except json.JSONDecodeError:
+            return []  # Handles the case where file content is not valid JSON
+
+    # File paths, switched to prioritize input_address.test.json
+    primary_file_path = 'input_address.test.json'
+    backup_file_path = 'input_address.json'
+
+    # Read data and store in variable 'meow'
+    meow = read_json_data(primary_file_path, backup_file_path)
+
+    print(meow)  # Output the data
+
+
+
+    ####
+    '''
+    jd_data = Get.user_protocol(strategy_name="all_complex_list",params=test_get_complex_protocol_params)
     print(jd_data)
+    
+    # Write the data to a JSON file
+    with open('output_data.json', 'w') as file:
+        json.dump(jd_data, file, indent=4)  # Use indent for pretty printing
+    print("Data written to 'output_data.json'")
+    '''
+    ####
     pass
