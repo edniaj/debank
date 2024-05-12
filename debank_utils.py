@@ -1,4 +1,5 @@
 from debank_utils_typehint import ParamsUserProtocolAllChain, ParamsUserProtocol
+from ratelimit import limits, sleep_and_retry
 from custom_logging import setup_logging
 import requests, os, json
 
@@ -7,24 +8,7 @@ load_dotenv()
 
 import logging
 
-def setup_loggers():
 
-    global logger_info, logger_error
-    logger_info, logger_error = setup_logging("debank_utils_info.log", "debank_utils_error.log")
-
-    # Use these loggers throughout your code
-    logger_info.info("This is an info message")
-    logger_error.error("This is an error message")
-
-    if os.getenv("ACCESS_KEY") == None:
-        error_message = "Access key was not found in .env file"
-        logger_error.error(error_message)
-        raise Exception(error_message)
-
-    else:
-        success_message = f'Loaded access key: {os.getenv("ACCESS_KEY")}'
-        logging.info(success_message)
-        print(success_message)
 
 def read_json_data(primary_file, backup_file):
     try:
@@ -57,7 +41,10 @@ class Get:
             "complex_list" : Get.__user_protocol_complex_list,
             "all_complex_list" : Get.__user_protocol_all_complex_list
         }
-        return strategy[strategy_name](params)
+        data = strategy[strategy_name](params)
+        print(data)
+        return data
+        
     
     def __user_protocol_simple_list( params:ParamsUserProtocolAllChain):
         """
@@ -81,13 +68,13 @@ class Get:
         """
         api_endpoint = APIManager.parse_path("/v1/user/simple_protocol_list")
         data = APIManager.call_endpoint(api_endpoint, params)
-        print(data)
+        
         return data
 
     def __user_protocol_all_simple_list( params:ParamsUserProtocolAllChain):
         api_endpoint = APIManager.parse_path("/v1/user/all_simple_protocol_list")
         data = APIManager.call_endpoint(api_endpoint, params)
-        print(data)
+        
         return data
 
     def __user_protocol_complex_list( params: ParamsUserProtocol):
@@ -111,7 +98,7 @@ class Get:
 
         api_endpoint = APIManager.parse_path("/v1/user/complex_protocol_list")
         data = APIManager.call_endpoint(api_endpoint, params)
-        print(data)
+        
         return data
 
     def __user_protocol_all_complex_list(params: ParamsUserProtocolAllChain):
@@ -140,7 +127,7 @@ class Get:
 
         api_endpoint = APIManager.parse_path("/v1/user/all_complex_protocol_list")
         data = APIManager.call_endpoint(api_endpoint, params)
-        print(data)
+        
         return data       
 
 # This class parses endpoint path and interact directly with API
@@ -199,7 +186,7 @@ class APIManager(APIEndpoint):
 
 if __name__ == "__main__":
 
-    setup_loggers()
+    
 
     def read_json_data(primary_file, backup_file):
         try:
@@ -222,22 +209,54 @@ if __name__ == "__main__":
     primary_file_path = 'input_address.test.json'
     backup_file_path = 'input_address.json'
 
-    # Read data and store in variable 'meow'
-    meow = read_json_data(primary_file_path, backup_file_path)
 
-    print(meow)  # Output the data
+    logger_info, logger_error = setup_logging("debank_utils_info.log","debank_utils_error.log")
+    # Write the data to a JSON file
+    
+    # Constants
+    RATE_LIMIT_CALLS = 70
+    RATE_LIMIT_PERIOD = 60  # 70 calls per 60 seconds
 
+    @sleep_and_retry
+    @limits(calls=RATE_LIMIT_CALLS, period=RATE_LIMIT_PERIOD)
+    def rate_limited_user_protocol(wallet):
+        # Assuming that 'params' takes a dictionary with 'id'
+        return Get.user_protocol("all_complex_list", params={"id": wallet})
 
+    def gather_data(wallets):
+        results = []
+        for each_wallet in wallets:
+            data = rate_limited_user_protocol(each_wallet)
+            if data:
+                results.append(data)
+        return results
+
+    def write_to_json(file_path, data):
+        with open(file_path, 'w') as file:
+            json.dump(data, file, indent=4)
+        print(f"Data successfully written to {file_path}")
+
+    # Main execution function
+    def main():
+        # Example wallet addresses loaded into 'meow'
+        
+            # Read data and store in variable 'meow'
+        meow = read_json_data(primary_file_path, backup_file_path)
+        
+        # Gather data
+        compiled_data = gather_data(meow)
+        
+        # Write data to JSON file
+        write_to_json("output_data.json", compiled_data)
+        
+    main()
 
     ####
     '''
     jd_data = Get.user_protocol(strategy_name="all_complex_list",params=test_get_complex_protocol_params)
     print(jd_data)
     
-    # Write the data to a JSON file
-    with open('output_data.json', 'w') as file:
-        json.dump(jd_data, file, indent=4)  # Use indent for pretty printing
-    print("Data written to 'output_data.json'")
+    
     '''
     ####
     pass
